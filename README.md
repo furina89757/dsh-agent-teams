@@ -43,6 +43,22 @@ The conversation card and activity panel use Harness's official locale service. 
 
 With [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) installed, the AgentTeams **live status display** becomes an ecosystem side card in the right sidebar: registered as an **AgentTeams status** tab in the "+" menu (type id `agent-teams:activity`, single instance); auto-opens when a team first appears (re-armed once the session has no live teams) and the open tab shows a live team-count badge next to its icon; enable/disable from DSH Settings → Side cards; **without better-sidebar it falls back** to the original top-right floating activity panel, unchanged.
 
+
+> **Fork notice**
+>
+> This repository is a **feature fork** of [NanmiCoder/dsh-agent-teams](https://github.com/NanmiCoder/dsh-agent-teams) (original author **NanmiCoder**, [MIT](./LICENSE)), maintained by **furina89757**.
+>
+> **Changes**:
+> 1. **Status display migrated to a DSH-better-sidebar side card** (type id `agent-teams:activity`): with [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) installed the AgentTeams live status renders as an ecosystem side card in the right sidebar (auto-open + team-count badge + settings toggle); without it the plugin falls back to the original top-right floating activity panel. Sources: `src/client/TeamStatusTab.tsx`, `src/client/sidebar-monitor.ts`, `src/client/team-status-view.tsx`, `src/client/team-status-select.ts`;
+> 2. **Windows transient-lock retry test margin fix** (`scripts/verify.mjs`: hold 140ms → 100ms, avoiding jitter at the edge of the 150ms retry window).
+>
+> **Install from this fork (git source; dsh-market auto-update supported)**:
+>
+> ```sh
+> dsh plugin --profile web add github:furina89757/dsh-agent-teams
+> ```
+>
+
 ## Install
 
 > [!NOTE]

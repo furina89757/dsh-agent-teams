@@ -43,6 +43,22 @@
 
 安装 [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) 后，AgentTeams 的**实时状态展示**以生态侧边卡的形式出现在右侧栏：注册为「+ 菜单」中的 **AgentTeams 状态** tab（类型 id `agent-teams:activity`，单实例）；团队首次出现时自动打开该卡（团队清空后重新武装，与新活动再触发），打开的 tab 图标旁显示当前会话的团队数角标；可在 DSH 设置 → 侧边卡片中启用/禁用；**未安装 better-sidebar 时自动回退**为原有的右上角浮动活动面板，行为不变。
 
+
+> **Fork 说明 / Fork notice**
+>
+> 本仓库是 [NanmiCoder/dsh-agent-teams](https://github.com/NanmiCoder/dsh-agent-teams)（原作者 **NanmiCoder**，[MIT](./LICENSE)）的**功能分叉**，由 **furina89757** 维护。
+>
+> **改动内容**：
+> 1. **状态展示迁移为 DSH-better-sidebar 侧边卡**（类型 id `agent-teams:activity`）：安装 [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) 后，AgentTeams 实时状态以生态侧边卡形式展示于右侧栏（自动打开 + 团队数角标 + 设置页开关）；未安装 better-sidebar 时自动回退为原有右上角浮动活动面板。对应源码：`src/client/TeamStatusTab.tsx`、`src/client/sidebar-monitor.ts`、`src/client/team-status-view.tsx`、`src/client/team-status-select.ts`；
+> 2. **Windows 瞬态锁重试测试余量修复**（`scripts/verify.mjs`：保持时长 140ms → 100ms，避免 150ms 重试窗口边缘抖动）。
+>
+> **从本 fork 安装（git 源，支持 dsh-market 自动更新）**：
+>
+> ```sh
+> dsh plugin --profile web add github:furina89757/dsh-agent-teams
+> ```
+>
+
 ## 安装
 
 > [!NOTE]
