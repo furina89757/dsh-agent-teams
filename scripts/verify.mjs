@@ -1227,7 +1227,7 @@ try {
       // Archive moves the whole team directory with `rename(source, target)`.
       // The same Windows delete-sharing EPERM applies when a file below the
       // directory is momentarily locked, so it retries the rename. A short
-      // (≈150 ms) lock falls inside the retry window and must not abort the
+      // (≈100 ms) lock falls inside the retry window and must not abort the
       // archive.
       const { archiveTeamDir } = await import('../lib/state.js')
       const transientTeam = {
@@ -1247,7 +1247,7 @@ try {
           `$f = '${transientJson.replaceAll("'", "''")}';
            $s = [System.IO.File]::Open($f, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::ReadWrite);
            [Console]::Out.WriteLine('HELD_T'); [Console]::Out.Flush();
-           Start-Sleep -Milliseconds 140; $s.Dispose()`],
+           Start-Sleep -Milliseconds 100; $s.Dispose()`],
         { stdio: ['ignore', 'pipe', 'inherit'] },
       )
       const flashed = await new Promise((resolve, reject) => {
