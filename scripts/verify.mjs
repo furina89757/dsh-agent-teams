@@ -266,11 +266,12 @@ check(
     && !activityPanelCss.includes('scrollbar-width: none'),
   'interactive panel controls must stay visible to browser verification',
 )
+const teamStatusDagSource = await readFile(new URL('../src/client/team-status-view.tsx', import.meta.url), 'utf8')
 check(
   'running DAG tasks reuse the animated work glyph without losing focus context',
-  activityPanelSource.includes("task.state === 'running'")
-    && activityPanelSource.includes('className={css.dagRunningState}')
-    && activityPanelSource.includes('<WorkGlyph active />')
+  teamStatusDagSource.includes("task.state === 'running'")
+    && teamStatusDagSource.includes('className={css.dagRunningState}')
+    && teamStatusDagSource.includes('<WorkGlyph active />')
     && activityPanelCss.includes(".dagNode[data-state='running'][data-dimmed='true']")
     && activityPanelCss.includes('.dagRunningState {'),
   'running work should stay visible in both normal and dependency-focus states',
@@ -1304,6 +1305,123 @@ try {
     await rm(atomicStateRoot, { recursive: true, force: true })
   })
 }
+
+console.log('9/8 better-sidebar side card migration')
+const {
+  AGENT_TEAMS_TAB_ID,
+  selectAttentionKeys,
+  decideSidebarAutoOpen,
+  sessionTeamBadgeState,
+} = await import('../lib/client/sidebar-monitor.js')
+const { selectVisibleTeamEntries } = await import('../lib/client/team-status-select.js')
+const badgeTeams = [
+  {
+    teamId: 'alpha', captainSessionId: 'sess-a', name: 'Alpha', workspace: '',
+    members: [{ id: 'm1', name: 'alice', role: '', activity: 'working', status: 'idle', progress: 0, done: 0, total: 0, currentTask: '', unread: 0 }],
+    tasks: [], messageCount: 0, captainInbox: [],
+  },
+  {
+    teamId: 'beta', captainSessionId: 'sess-b', name: 'Beta', workspace: '',
+    members: [], tasks: [], messageCount: 0, captainInbox: [],
+  },
+]
+check(
+  'better-sidebar tab id is namespaced to the plugin',
+  AGENT_TEAMS_TAB_ID === 'agent-teams:activity',
+)
+check(
+  'tab badge counts only the tab session live teams and detects busy members',
+  sessionTeamBadgeState(badgeTeams, 'sess-a').count === 1
+    && sessionTeamBadgeState(badgeTeams, 'sess-a').busy === true,
+)
+check('tab badge is absent without teams', sessionTeamBadgeState(badgeTeams, 'sess-other').count === 0)
+{
+  const known = new Set(['sess-a:alpha'])
+  const decision = decideSidebarAutoOpen(known, 'sess-a', badgeTeams)
+  check('an already-known team does not re-open the tab', decision.open === null)
+  const first = decideSidebarAutoOpen(new Set(), 'sess-a', badgeTeams)
+  check(
+    'a first-seen team opens the tab once',
+    first.open === 'sess-a:alpha' && [...first.known].sort().join(',') === 'sess-a:alpha',
+  )
+  const release = decideSidebarAutoOpen(first.known, 'sess-a', [])
+  check('an empty team set re-arms the auto-open guard', release.open === null && release.known.size === 0)
+}
+check(
+  'visible-team selection follows the captain session and includes archived teams',
+  selectVisibleTeamEntries(
+    'sess-a',
+    [badgeTeams[0]],
+    [{ ...badgeTeams[1], captainSessionId: 'sess-a' }],
+    new Map(),
+  ).visibleCount === 2
+    && selectVisibleTeamEntries('sess-c', [badgeTeams[0]], [], new Map()).visibleCount === 0,
+)
+check(
+  'attention keys ignore teams of other sessions',
+  [...selectAttentionKeys('sess-a', badgeTeams)].sort().join(',') === 'sess-a:alpha',
+)
+
+// --------------------------------------------------------------------------
+// Migration wiring probes (source level)
+// --------------------------------------------------------------------------
+const teamStatusSource = await readFile(new URL('../src/client/team-status-view.tsx', import.meta.url), 'utf8')
+const teamStatusSelectSource = await readFile(new URL('../src/client/team-status-select.ts', import.meta.url), 'utf8')
+const sidebarMonitorSource = await readFile(new URL('../src/client/sidebar-monitor.ts', import.meta.url), 'utf8')
+const teamStatusTabSource = await readFile(new URL('../src/client/TeamStatusTab.tsx', import.meta.url), 'utf8')
+const teamStatusTabCss = await readFile(new URL('../src/client/TeamStatusTab.module.css', import.meta.url), 'utf8')
+check(
+  'the shared team face moved out of the floater into team-status-view',
+  teamStatusSource.includes('function TeamSection(')
+    && teamStatusSource.includes('function historicCardTeam(')
+    && teamStatusSource.includes('function TeamStatusView(')
+    && !activityPanelSource.includes('function TeamSection('),
+)
+check(
+  'the floater keeps its interactive chrome probes after the extraction',
+  activityPanelSource.includes('data-drag-handle')
+    && activityPanelSource.includes('data-resize-edge="corner"')
+    && activityPanelSource.includes('data-control="dock"'),
+)
+check(
+  'the side card registers through the optional betterSidebar service',
+  clientIndexSource.includes("from 'dsh-better-sidebar/client/service'")
+    && clientIndexSource.includes("ctx.inject(['betterSidebar']")
+    && clientIndexSource.includes('bsCtx.betterSidebar.registerTab(')
+    && clientIndexSource.includes('AGENT_TEAMS_TAB_ID')
+    && clientIndexSource.includes('startSidebarMonitor('),
+)
+check(
+  'the betterSidebar arrival retires the floater registration',
+  clientIndexSource.includes('cancelFloater()')
+    && clientIndexSource.includes("ctx.slots.inject('shell.overlay'"),
+)
+check(
+  'the conversation card routes the open button through the window event',
+  agentTeamsCardSource.includes('OPEN_PANEL_EVENT')
+    && clientIndexSource.includes('OPEN_PANEL_EVENT'),
+)
+check(
+  'the status tab reuses the shared team face instead of duplicating it',
+  teamStatusTabSource.includes('<TeamStatusView')
+    && teamStatusTabSource.includes('selectVisibleTeamEntries(')
+    && teamStatusTabSource.includes('containerClass={css.body}'),
+)
+check(
+  'the pure team-status selection module stays DOM-free',
+  teamStatusSelectSource.includes('selectVisibleTeamEntries(')
+    && !teamStatusSelectSource.includes("from 'react'"),
+)
+check(
+  'side card CSS bridges the same palette chain as the floater',
+  teamStatusTabCss.includes('--dsw-alias-line-normal: var(--dsw-static-neutral-bluish-150'),
+)
+check(
+  'the monitor wiring module stays DOM-free and namespaced',
+  sidebarMonitorSource.includes("AGENT_TEAMS_TAB_ID = 'agent-teams:activity'")
+    && !sidebarMonitorSource.includes('window.'),
+)
+
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) FAILED`)

@@ -1,18 +1,37 @@
-/** Browser plugin for the AgentTeams activity floater and conversation card. */
+/** Browser plugin: the AgentTeams status side card (DSH-better-sidebar
+ * extension tab), the legacy floater fallback for profiles without
+ * better-sidebar, and the in-conversation conversation card. */
 
+import { IconBranchOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the official browser locale service into ClientContext.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Module-loading import: the card registers into the conversation chat-node
-// slot, whose keyed renderer map lives in the ui-conversation contract.
+// Type-only: registers the card into the conversation chat-node slot map.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-// The frame-level overlay is declared by ui-layout. This import is type-only;
-// ctx.slots.inject below owns the runtime wait for the declaration.
+// Type-only: the frame-level overlay declaration for the floater fallback.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+// Type-only: better-sidebar's cordis augmentation declares ctx.betterSidebar
+// and the consumer types below; erased at build time (no runtime coupling).
+import type { TabComponentProps, TabDescriptor } from 'dsh-better-sidebar/client/service'
+import type {} from 'dsh-better-sidebar/client/service'
 import { ActivityPanel } from './ActivityPanel.tsx'
 import { AgentTeamsCard, type AgentTeamsCardInjected } from './AgentTeamsCard.tsx'
 import { agentTeamsCardDefinition } from './agent-teams-card-definition.ts'
+import { OPEN_PANEL_EVENT } from './AgentTeamsCard.tsx'
+import { TeamStatusTab } from './TeamStatusTab.tsx'
+import {
+  AGENT_TEAMS_TAB_ID,
+  sessionTeamBadgeState,
+  startSidebarMonitor,
+} from './sidebar-monitor.ts'
+import {
+  getActivityMonitorTargetsSnapshot,
+  getActivitySnapshotsSnapshot,
+  startActivityPolling,
+  subscribeActivityMonitorTargets,
+  subscribeActivitySnapshots,
+} from './activity-monitor.ts'
 import {
   AGENT_TEAMS_LOCALE_NAMESPACE, en, zh, type AgentTeamsLocaleKey,
 } from './locales.ts'
@@ -34,15 +53,28 @@ function HiddenAgentTeamsCommand(): null {
 }
 
 /**
- * Register the activity monitor in the shell's additive overlay and the
- * in-conversation team card. The card's activity button re-opens a folded
- * monitor via a window event — the recovery path for an old session.
+ * Register three surfaces:
+ *
+ * 1. the DSH-better-sidebar extension side card (`agent-teams:activity`)
+ *    — the migrated status display, registered through the optional
+ *    betterSidebar service (soft dependency, so profiles without
+ *    better-sidebar keep the legacy floater);
+ * 2. the legacy shell-overlay floater as a FALLBACK, retired the moment
+ *    the betterSidebar service arrives (its disposer also cancels a
+ *    pending shell.overlay wait);
+ * 3. the in-conversation team card, unchanged, whose activity button now
+ *    opens the side card (better-sidebar present) or the floater (fallback).
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(
     () => ctx.locale.register(AGENT_TEAMS_LOCALE_NAMESPACE, { zh, en }),
     'agent-teams: dictionaries',
   )
+  // The typed translate function read at call time: stable per namespace.
+  const tabT = ctx.locale.bind(AGENT_TEAMS_LOCALE_NAMESPACE) as (
+    key: AgentTeamsLocaleKey,
+    params?: Record<string, unknown>,
+  ) => string
   const openMember = (parentId: SessionId, childId: SessionId): void => {
     void openAgentTeamMember(ctx.sessions, parentId, childId).catch((error: unknown) => {
       console.warn(`agent-teams: failed to open member transcript ${childId}: ${String(error)}`)
@@ -55,7 +87,11 @@ export function apply(ctx: ClientContext): void {
       t={t}
     />
   )
-  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+
+  // ── Legacy floater (fallback only) ─────────────────────────────────────
+  // Better-sidebar owns the status display when the service is present;
+  // without it the floater keeps today's behavior exactly.
+  const cancelFloater = ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay',
     id: 'agent-teams-activity',
     order: 80,
@@ -80,4 +116,60 @@ export function apply(ctx: ClientContext): void {
       openMember,
     }),
   }, AgentTeamsCard))
+
+  // ── DSH-better-sidebar extension side card (the migrated status display) ──
+  ctx.inject(['betterSidebar'], (bsCtx) => {
+    // The side card has taken over: retire the floater (regardless of
+    // whether its shell.overlay slot has been declared yet).
+    cancelFloater()
+    const openStatusCard = (): void => {
+      bsCtx.betterSidebar.openTab({ type: AGENT_TEAMS_TAB_ID })
+    }
+    // The in-chat card's activity button now opens the side card. The
+    // historic card summary still rides the window event detail; the tab's
+    // useTeamHistoric hook picks it up exactly like the floater did.
+    const onOpenPanel = (): void => { openStatusCard() }
+    window.addEventListener(OPEN_PANEL_EVENT, onOpenPanel)
+    bsCtx.effect(() => () => {
+      window.removeEventListener(OPEN_PANEL_EVENT, onOpenPanel)
+    }, 'agent-teams: status-card open listener')
+
+    bsCtx.effect(() => {
+      const descriptor: TabDescriptor = {
+        id: AGENT_TEAMS_TAB_ID,
+        title: () => tabT('sidebar.tabTitle'),
+        icon: (size: number) => <IconBranchOutline16 size={size} />,
+        order: 80,
+        single: true,
+        component: (props: TabComponentProps) => (
+          <TeamStatusTab
+            sessionId={props.scope.sessionId as SessionId}
+            openMember={openMember}
+            t={tabT}
+          />
+        ),
+      }
+      if (bsCtx.betterSidebar.features.includes('badge')) {
+        descriptor.badge = (tctx, scope) => {
+          const badge = sessionTeamBadgeState(getActivitySnapshotsSnapshot().teams, scope.sessionId)
+          return badge.count > 0 ? badge.count : null
+        }
+      }
+      const offTab = bsCtx.betterSidebar.registerTab(descriptor)
+      return () => { offTab() }
+    }, 'agent-teams: register better-sidebar status card')
+
+    // One current-session poll loop keeps the badge and the auto-open guard
+    // fresh; use the tab's own visible-gated data flow when it is open.
+    bsCtx.effect(() => startSidebarMonitor({
+      subscribeSnapshots: subscribeActivitySnapshots,
+      getSnapshots: () => getActivitySnapshotsSnapshot(),
+      subscribeTargets: subscribeActivityMonitorTargets,
+      getTargets: () => getActivityMonitorTargetsSnapshot(),
+      subscribeSessions: (listener) => ctx.sessions.list.subscribe(listener),
+      getCurrentSession: () => ctx.sessions.list.getSnapshot().current,
+      startPolling: (targets, discoverySessionId) => startActivityPolling(targets, { discoverySessionId }),
+      openTab: () => openStatusCard(),
+    }), 'agent-teams: better-sidebar session monitor')
+  })
 }

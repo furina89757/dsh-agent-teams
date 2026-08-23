@@ -1,0 +1,67 @@
+/* AgentTeams status side card: fills the better-sidebar tab pane and
+   reuses the shared team-status face (class names come from
+   ActivityPanel.module.css) inside its own scroll body. The token
+   bridges mirror the floater's .panel block so both hosts resolve the
+   same theme-aware palette. */
+.root {
+  --dsw-alias-line-normal: var(--dsw-static-neutral-bluish-150, #e7e9ee);
+  --dsw-alias-line-strong: color-mix(
+    in srgb,
+    var(--dsw-static-neutral-bluish-200, #e1e5ee) 50%,
+    var(--dsw-static-neutral-bluish-300, #cfd3d6)
+  );
+  --dsw-alias-bg-module: var(--dsw-alias-bg-layer-1, #ffffff);
+  --dsw-alias-bg-fill-neutral: var(--dsw-static-neutral-bluish-100, #eef0f4);
+  --dsw-alias-bg-fill-business: var(--dsw-alias-state-business-primary, #4d6bfe);
+  --dsw-alias-bg-fill-success: var(--dsw-alias-state-success-primary, #12a150);
+  --dsw-alias-bg-fill-warning: var(--dsw-alias-state-warn-primary, #e08700);
+  --dsw-alias-bg-fill-danger: var(--dsw-alias-state-error-primary, #e5484d);
+  --dsw-alias-state-success: var(--dsw-alias-state-success-primary, #12a150);
+  --dsw-alias-state-warning: var(--dsw-alias-state-warn-primary, #e08700);
+  --dsw-alias-state-danger: var(--dsw-alias-state-error-primary, #e5484d);
+  --dsw-alias-label-on-fill: var(--dsw-alias-label-primary-inverted, #ffffff);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 8px 0 12px;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  font: var(--dsw-font-s-14);
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* The scroll body hosts the shared team face (its own .teams rules
+   still watch for the thin scrollbar; this container sizes it). */
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 6px 8px;
+}
+
+.body > :first-child {
+  padding-top: 2px;
+}

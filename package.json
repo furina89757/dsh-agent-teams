@@ -96,7 +96,8 @@
     "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
     "@deepseek-ai/schemastery": "^3.18.1-rc.1",
-    "react": "^18.2.0"
+    "react": "^18.2.0",
+    "dsh-better-sidebar": "^0.15.0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
@@ -146,6 +147,9 @@
     },
     "react": {
       "optional": true
+    },
+    "dsh-better-sidebar": {
+      "optional": true
     }
   },
   "devDependencies": {
@@ -172,6 +176,7 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "tsdown": "0.22.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "dsh-better-sidebar": "^0.15.0"
   }
 }

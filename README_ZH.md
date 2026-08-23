@@ -39,6 +39,10 @@
 
 对话卡片与活动面板接入 Harness 官方多语言服务，会随宿主在简体中文和英文之间实时切换；任务/成员状态、动态摘要、操作按钮、历史归档标识和无障碍文案都会同步更新，无需刷新页面，也不增加插件自己的语言设置。
 
+## 侧边卡集成（DSH-better-sidebar）
+
+安装 [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) 后，AgentTeams 的**实时状态展示**以生态侧边卡的形式出现在右侧栏：注册为「+ 菜单」中的 **AgentTeams 状态** tab（类型 id `agent-teams:activity`，单实例）；团队首次出现时自动打开该卡（团队清空后重新武装，与新活动再触发），打开的 tab 图标旁显示当前会话的团队数角标；可在 DSH 设置 → 侧边卡片中启用/禁用；**未安装 better-sidebar 时自动回退**为原有的右上角浮动活动面板，行为不变。
+
 ## 安装
 
 > [!NOTE]

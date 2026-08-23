@@ -39,6 +39,10 @@ Read the [latest release notes](https://github.com/NanmiCoder/dsh-agent-teams/re
 
 The conversation card and activity panel use Harness's official locale service. They follow live language changes between English and Simplified Chinese—including status labels, dynamic summaries, controls, archive markers, and accessibility text—without a page reload or a separate plugin setting.
 
+## Side card integration (DSH-better-sidebar)
+
+With [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) installed, the AgentTeams **live status display** becomes an ecosystem side card in the right sidebar: registered as an **AgentTeams status** tab in the "+" menu (type id `agent-teams:activity`, single instance); auto-opens when a team first appears (re-armed once the session has no live teams) and the open tab shows a live team-count badge next to its icon; enable/disable from DSH Settings → Side cards; **without better-sidebar it falls back** to the original top-right floating activity panel, unchanged.
+
 ## Install
 
 > [!NOTE]
