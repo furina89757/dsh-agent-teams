@@ -99,9 +99,6 @@ function mountRuntime() {
       },
     },
     subagents: {
-      registerContinuableSetup() {
-        return () => {}
-      },
       getProvider(name) {
         if (name !== 'spawn') return undefined
         return { prepareContinuable() {}, capabilities: { persona: true, toolFilter: true } }
@@ -129,15 +126,15 @@ function mountRuntime() {
       async listDescendants(parentId) {
         return this.listChildren(parentId)
       },
-      async followup(_parent, childId, content) {
+      async sendMessage(_sender, childId, content) {
         const remaining = failDeliveryCount.get(childId) ?? 0
         if (remaining > 0) {
           failDeliveryCount.set(childId, remaining - 1)
-          throw new Error('injected followup failure')
+          throw new Error('injected message failure')
         }
         let child = liveAgents.get(childId)
         if (child === undefined) {
-          // Harness cold-resumes a continuable child on a waking followup.
+          // Harness cold-resumes a continuable child on a waking message.
           child = makeAgent(childId, captain.id)
           liveAgents.set(childId, child)
         }

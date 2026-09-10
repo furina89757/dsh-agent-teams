@@ -51,7 +51,7 @@
 ## 安装
 
 > [!NOTE]
-> 使用前请确保已安装 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)。
+> 使用前请确保已安装 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)，且宿主版本为 **`0.1.5-rc.1` 或更高**。本 fork 跟随 0.1.5-rc 线；仍在使用 `0.1.0-rc` / `0.1.1-rc` 的宿主请继续使用 AgentTeams `<= 0.1.13`。
 
 ### npm
 

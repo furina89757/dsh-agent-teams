@@ -12,7 +12,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { JsonValue, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { join } from 'node:path'
@@ -41,7 +41,6 @@ import {
 import {
   deliverToMember,
   installRetiredMemberGuard,
-  installMemberSelectionRuntime,
   interruptMember,
   memberActivity,
   resolveMemberLlmSelection,
@@ -50,6 +49,14 @@ import {
 } from './members.ts'
 import { TERMINAL_TASK_STATUSES, type TeamMember, type TeamState, type TeamTask } from './types.ts'
 import { installTeamScheduler } from './scheduler.ts'
+
+/**
+ * JSON value as the status renderer receives it. Declared locally instead of
+ * importing the host's type: dsh-session stopped exporting `JsonValue` in
+ * 0.1.5-rc.1, and a type-only import of the replacement would tie the plugin
+ * to a package older Harness releases do not ship.
+ */
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
 /** Resolved plugin config consumed by the tools. */
 export interface ToolsConfig {
@@ -223,7 +230,6 @@ export function steerCaptainReport(captain: Pick<Agent, 'steer'>, from: string, 
  */
 export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): void {
   installRetiredMemberGuard(ctx, config.stateDir)
-  const memberSelections = installMemberSelectionRuntime(ctx, config.stateDir)
   const scheduler = installTeamScheduler(ctx, { stateDir: config.stateDir })
 
   ctx.tools.register(defineTool({
@@ -355,7 +361,6 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): void
         await spawnMember(
           ctx,
           memberRuntime(config),
-          memberSelections,
           selection,
           captain,
           fresh,

@@ -69,7 +69,6 @@ import {
 import { openAgentTeamMember } from '../lib/client/session-navigation.js'
 import { steerCaptainReport } from '../lib/tools.js'
 import {
-  installMemberSelectionRuntime,
   resolveMemberLlmSelection,
   spawnMember,
 } from '../lib/members.js'
@@ -151,7 +150,7 @@ check(
 check(
   'client registers the official locale namespace on both visible slots',
   AGENT_TEAMS_LOCALE_NAMESPACE === 'agentTeams'
-    && clientIndexSource.includes("'conversationEvents', 'slots', 'sessions', 'locale'")
+    && clientIndexSource.includes("'uiConversation', 'slots', 'sessions', 'locale'")
     && clientIndexSource.includes('ctx.locale.register(AGENT_TEAMS_LOCALE_NAMESPACE, { zh, en })')
     && clientIndexSource.match(/locale:\s*AGENT_TEAMS_LOCALE_NAMESPACE/gu)?.length === 2,
 )
@@ -964,9 +963,6 @@ await spawnMember(
     },
   },
   { provider: 'spawn', maxDepth: 1 },
-  {
-    withPending: async (_parentId, _label, _selection, operation) => operation(),
-  },
   overriddenSelection,
   captain,
   spawnTeam,
@@ -975,127 +971,12 @@ await spawnMember(
   new AbortController().signal,
 )
 check(
-  '#20: spawn receives the resolved per-member provider and model',
+  '#20: spawn receives the resolved per-member provider, model, and reasoning effort',
   startSpec?.request?.agentOptions?.provider === 'other-provider'
     && startSpec?.request?.agentOptions?.model === 'other-model'
+    && startSpec?.request?.agentOptions?.reasoningEffort === 'low'
     && spawnMemberRecord.id === 'spawned-member',
 )
-
-function descriptorEvent(label, agentProvider = 'descriptor-provider', agentModel = 'descriptor-model') {
-  return {
-    type: 'subagent/descriptor',
-    data: {
-      version: 2,
-      mode: 'continuable',
-      provider: 'spawn',
-      label,
-      agentProvider,
-      agentModel,
-    },
-  }
-}
-
-function fakeChildContext({ label, parentSessionId, cwd, agentProvider, agentModel }) {
-  const listeners = new Map()
-  return {
-    listeners,
-    context: {
-      agent: {
-        session: {
-          header: { parentSession: parentSessionId, cwd, seedLength: 0 },
-          events: [descriptorEvent(label, agentProvider, agentModel)],
-        },
-      },
-      on(name, listener) {
-        listeners.set(name, listener)
-        return () => listeners.delete(name)
-      },
-    },
-  }
-}
-
-async function routedConfig(child) {
-  const assemble = child.listeners.get('system-prompt/assemble')
-  const request = child.listeners.get('agent/request')
-  await assemble({}, {}, async () => ({ variables: {} }))
-  return request({}, async () => ({
-    provider: 'unselected-provider',
-    model: 'unselected-model',
-    reasoningEffort: 'low',
-  }))
-}
-
-let setupMemberSelection
-const selectionRuntime = installMemberSelectionRuntime({
-  subagents: {
-    registerContinuableSetup: (setup) => {
-      setupMemberSelection = setup
-      return () => undefined
-    },
-  },
-}, '.agent-teams')
-const freshChild = fakeChildContext({
-  label: 'agent-teams:fresh-team:backend',
-  parentSessionId: 'captain-session',
-  cwd: process.cwd(),
-})
-let disposeFresh
-await selectionRuntime.withPending(
-  'captain-session',
-  'agent-teams:fresh-team:backend',
-  overriddenSelection,
-  async () => {
-    disposeFresh = setupMemberSelection(freshChild.context)
-  },
-)
-const freshRoute = await routedConfig(freshChild)
-check(
-  'fresh child request receives the resolved reasoning effort',
-  freshRoute.provider === 'other-provider'
-    && freshRoute.model === 'other-model'
-    && freshRoute.reasoningEffort === 'low',
-)
-disposeFresh()
-
-const restoreWorkspace = await mkdtemp(join(tmpdir(), 'dsh-agent-teams-selection-'))
-try {
-  const restoreStateRoot = join(restoreWorkspace, '.agent-teams')
-  await createTeamDir(restoreStateRoot, {
-    name: 'Restore Team',
-    id: 'restore-team',
-    captainSessionId: 'captain-session',
-    createdAt: Date.now(),
-    members: [{
-      id: 'cold-member',
-      name: 'reviewer',
-      provider: 'cold-provider',
-      model: 'cold-model',
-      reasoningEffort: 'high',
-      joinedAt: Date.now(),
-      status: 'idle',
-    }],
-    tasks: [],
-    taskSeq: 0,
-  })
-  const coldChild = fakeChildContext({
-    label: 'agent-teams:restore-team:reviewer',
-    parentSessionId: 'captain-session',
-    cwd: restoreWorkspace,
-    agentProvider: 'cold-provider',
-    agentModel: 'cold-model',
-  })
-  const disposeCold = setupMemberSelection(coldChild.context)
-  const coldRoute = await routedConfig(coldChild)
-  check(
-    'cold-resumed child restores provider, model, and reasoning from team.json',
-    coldRoute.provider === 'cold-provider'
-      && coldRoute.model === 'cold-model'
-      && coldRoute.reasoningEffort === 'high',
-  )
-  disposeCold()
-} finally {
-  await rm(restoreWorkspace, { recursive: true, force: true })
-}
 
 console.log('8/8 state-file atomic write hardening (Windows EPERM fallback)')
 // The durable state files (team.json, mailboxes, retired index) are replaced

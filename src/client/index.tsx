@@ -3,11 +3,17 @@
  * better-sidebar, and the in-conversation conversation card. */
 
 import { IconBranchOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the official browser locale service into ClientContext.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: registers the card into the conversation chat-node slot map.
+import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
+// Type-only: pulls the SlotRegistry service merge (ctx.slots).
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+// Type-only: pulls the Session identity merge (sessionId standard props).
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: the frame-level overlay declaration for the floater fallback.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -45,7 +51,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /** Required services: conversation nodes, slots, sessions navigation, and locale. */
-export const inject = ['conversationEvents', 'slots', 'sessions', 'locale']
+export const inject = ['uiConversation', 'slots', 'sessions', 'locale']
 
 /** The replayed user message is the canonical transcript entry. */
 function HiddenAgentTeamsCommand(): null {
@@ -107,7 +113,7 @@ export function apply(ctx: ClientContext): void {
     key: 'agent-teams',
   }, HiddenAgentTeamsCommand))
 
-  ctx.conversationEvents.register(agentTeamsCardDefinition)
+  ctx.uiConversation.events.register(agentTeamsCardDefinition)
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
     name: 'conversation.chat.node',
     key: 'agent-teams',

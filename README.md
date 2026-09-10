@@ -51,7 +51,7 @@ With [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) insta
 ## Install
 
 > [!NOTE]
-> Requires an existing [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) installation.
+> Requires an existing [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) installation, **`0.1.5-rc.1` or newer**. This fork tracks the 0.1.5-rc line; hosts on `0.1.0-rc` / `0.1.1-rc` should stay on AgentTeams `<= 0.1.13`.
 
 ### npm
 

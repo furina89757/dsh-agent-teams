@@ -510,6 +510,15 @@ const ATOMIC_RENAME_RETRIES = 3
 /** Pause between rename attempts, giving a briefly-locking owner time to finish. */
 const ATOMIC_RENAME_RETRY_DELAY_MS = 50
 /**
+ * Rename attempts for a whole directory (archiving a team). A directory move
+ * needs a wider window than a single state file: releasing a delete-sharing
+ * handle on a directory tree is slower than on one file, and the narrower
+ * file budget made the retry lose to a real ~140 ms holder on Windows.
+ */
+const DIRECTORY_RENAME_RETRIES = 9
+/** Pause between directory rename attempts in ms. */
+const DIRECTORY_RENAME_RETRY_DELAY_MS = 60
+/**
  * Rename error codes worth retrying before the direct-write fallback. On
  * Windows, replacing an existing file whose target is momentarily held open
  * without FILE_SHARE_DELETE surfaces as EPERM (or EACCES/EBUSY variants);
@@ -733,15 +742,22 @@ export async function removeTeamDir(stateRoot: string, teamId: string): Promise<
  * times before the error propagates.
  * @param from - source path.
  * @param to - destination path.
+ * @param retries - rename attempts after the first try (directory-wide by default).
+ * @param retryDelayMs - pause between attempts in ms.
  */
-async function renameWithRetry(from: string, to: string): Promise<void> {
+async function renameWithRetry(
+  from: string,
+  to: string,
+  retries: number = DIRECTORY_RENAME_RETRIES,
+  retryDelayMs: number = DIRECTORY_RENAME_RETRY_DELAY_MS,
+): Promise<void> {
   for (let attempt = 0; ; attempt += 1) {
     try {
       await rename(from, to)
       return
     } catch (error: unknown) {
-      if (isRetryableRenameError(error) && attempt < ATOMIC_RENAME_RETRIES) {
-        await sleep(ATOMIC_RENAME_RETRY_DELAY_MS)
+      if (isRetryableRenameError(error) && attempt < retries) {
+        await sleep(retryDelayMs)
         continue
       }
       throw error

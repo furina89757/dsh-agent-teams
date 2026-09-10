@@ -101,9 +101,6 @@ const ctx = {
     },
   },
   subagents: {
-    registerContinuableSetup() {
-      return () => {}
-    },
     getProvider(name) {
       if (name !== 'spawn') return undefined
       return { prepareContinuable() {}, capabilities: { persona: true, toolFilter: true } }
@@ -131,7 +128,7 @@ const ctx = {
     async listDescendants(parentId) {
       return this.listChildren(parentId)
     },
-    async followup(_parent, childId, content) {
+    async sendMessage(_sender, childId, content) {
       if (failNextDelivery.delete(childId)) throw new Error('injected delivery failure')
       deliveries.push({ childId, content })
       const child = liveAgents.get(childId)
@@ -375,8 +372,8 @@ try {
   let removedFollowupRejected = false
   const deliveriesBeforeRemovedFollowup = deliveries.length
   try {
-    await ctx.subagents.followup(captain, alpha.id, [{ type: 'text', text: 'must not resume' }], {
-      source: { kind: 'plugin', plugin: 'verification' }, signal: new AbortController().signal,
+    await ctx.subagents.sendMessage(captain, alpha.id, [{ type: 'text', text: 'must not resume' }], {
+      signal: new AbortController().signal,
     })
   } catch (error) {
     removedFollowupRejected = error?.code === 'NOT_RESUMABLE'
@@ -500,8 +497,8 @@ try {
   let coldFollowupRejected = false
   const deliveriesBeforeColdFollowup = deliveries.length
   try {
-    await ctx.subagents.followup(captain, gamma.id, [{ type: 'text', text: 'must stay retired' }], {
-      source: { kind: 'plugin', plugin: 'verification' }, signal: new AbortController().signal,
+    await ctx.subagents.sendMessage(captain, gamma.id, [{ type: 'text', text: 'must stay retired' }], {
+      signal: new AbortController().signal,
     })
   } catch (error) {
     coldFollowupRejected = error?.code === 'NOT_RESUMABLE'
@@ -511,10 +508,10 @@ try {
   check('team shutdown leaves unrelated continuable subagents untouched',
     (await ctx.subagents.listChildren(captain.id))
       .some(child => child.id === 'foreign-session' && child.mode === 'continuable'))
-  const foreignFollowup = await ctx.subagents.followup(captain, 'foreign-session', [
+  const foreignFollowup = await ctx.subagents.sendMessage(captain, 'foreign-session', [
     { type: 'text', text: 'unrelated work still routes' },
   ], {
-    source: { kind: 'plugin', plugin: 'verification' }, signal: new AbortController().signal,
+    signal: new AbortController().signal,
   })
   check('team shutdown leaves unrelated continuable followup untouched',
     typeof foreignFollowup === 'string'
