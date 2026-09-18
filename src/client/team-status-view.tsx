@@ -466,6 +466,8 @@ function historicCardTeam(data: AgentTeamsCardData, owner: string): ActivityTeam
     teamId: data.teamId,
     name: data.teamName,
     captainSessionId: data.captainSessionId || owner,
+    // A historic card is a finished/archived team: it is never staged.
+    phase: 'running',
     members: data.members.map((member) => ({
       ...member,
       status: 'removed',
