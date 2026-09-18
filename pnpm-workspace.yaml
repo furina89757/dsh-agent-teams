@@ -6,6 +6,14 @@ packages:
 # dependency stays unbuilt in this project.
 allowBuilds:
   node-pty: false
+  # Transitive devDependencies of the 0.1.5-rc toolchain. Their native/postinstall
+  # scripts are not needed to typecheck or bundle this plugin, but pnpm 11 fails
+  # a `pnpm install` outright while they are undecided — which aborts the
+  # `prepare` build a git-source install runs inside its extracted tarball.
+  '@deepseek-ai/dsh-subprocess-local': false
+  '@google/genai': false
+  koffi: false
+  protobufjs: false
 
 minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-agent-default-model@0.1.5-rc.2'
