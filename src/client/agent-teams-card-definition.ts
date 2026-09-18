@@ -12,7 +12,8 @@
  */
 
 import type {
-  ConversationNodeContext, ConversationNodeDefinition,
+  ConversationNodeContext,
+  ConversationNodeDefinition,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ChatConversationViewNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 // Module-loading imports: the declaration merges below extend modules that

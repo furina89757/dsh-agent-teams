@@ -17,7 +17,32 @@ import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { TaskStatus, TeamMember, TeamMessage, TeamState, TeamTask } from './types.ts'
+import { TERMINAL_TASK_STATUSES, type TaskStatus, type TeamMember, type TeamMessage, type TeamProfileSnapshot, type TeamState, type TeamTask } from './types.ts'
+import { hasValidQualityTaskFields, isReviewPolicy, normalizeBlankOptionalTaskFields } from './quality-gates.ts'
+
+export {
+  amendTaskContract,
+  buildCoverageMatrix,
+  canDeclareDelivery,
+  classifyChangedPath,
+  collectChangedPaths,
+  defaultQualityDeliveryGraph,
+  describeQualityLoop,
+  evaluateQualityCompletion,
+  hasValidQualityTaskFields,
+  isQualityKind,
+  isTaskRevision,
+  normalizeBlankOptionalTaskFields,
+  pathMatchesScope,
+  planQualityFollowUp,
+  qualityPlanningPrompt,
+  resumeTeamState,
+  sanitizeReviewAcceptance,
+  sanitizeReviewObjective,
+  taskKindOf,
+  validateCreateTask,
+} from './quality-gates.ts'
+export type { ContractAmendmentInput } from './quality-gates.ts'
 
 /** Mailbox key of the captain. */
 export const CAPTAIN_KEY = 'captain'
@@ -39,13 +64,27 @@ export async function withTeamLock<T>(key: string, fn: () => Promise<T>): Promis
   const previous = locks.get(key) ?? Promise.resolve()
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
-  locks.set(key, previous.then(() => gate))
+  const tail = previous.then(() => gate)
+  locks.set(key, tail)
   await previous
   try {
     return await fn()
   } finally {
     release()
+    // Drop this key's queue entry once we are still its tail, so settled
+    // teams do not leave one resolved promise chained forever (the same
+    // cleanup discipline as the scheduler's serializeMember). A successor
+    // that already appended itself owns the map slot; keep its entry.
+    if (locks.get(key) === tail) locks.delete(key)
   }
+}
+
+/**
+ * Keys with an in-process lock queue (held or waiting), snapshot for
+ * diagnostics and leak checks. The queue promises themselves stay private.
+ */
+export function teamLockQueueKeys(): readonly string[] {
+  return [...locks.keys()]
 }
 
 /** Longest key emitted before truncating and appending a digest. */
@@ -148,6 +187,17 @@ export function beginTaskAttempt(task: TeamTask, assignee: string): string {
  * Revoke the current worker immediately. Clearing its capability makes old
  * updates stale; a separate handoff generation serializes async quiescence.
  */
+/** Cancel one unfinished task without returning it to the ready pool. */
+export function cancelUnfinishedTask(task: TeamTask, output?: string): void {
+  if (TERMINAL_TASK_STATUSES.includes(task.status)) return
+  task.status = 'cancelled'
+  task.attemptId = undefined
+  task.handoffId = undefined
+  task.reassigning = false
+  if (output !== undefined) task.output = output
+  task.updatedAt = Date.now()
+}
+
 export function invalidateTaskAttempt(
   task: TeamTask,
   nextAssignee?: string,
@@ -182,10 +232,11 @@ export async function readTeam(stateRoot: string, teamId: string): Promise<TeamS
   try {
     const raw = await readFile(join(stateRoot, teamId, 'team.json'), 'utf8')
     const value: unknown = JSON.parse(stripLeadingBom(raw))
-    if (!isTeamState(value, teamId)) {
+    const team = coerceTeamState(value, teamId)
+    if (team === undefined) {
       throw new Error(`invalid AgentTeams state in team "${teamId}"`)
     }
-    return value
+    return team
   } catch (error: unknown) {
     if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
       return undefined
@@ -207,10 +258,11 @@ export function readTeamSync(stateRoot: string, teamId: string): TeamState | und
   try {
     const raw = readFileSync(join(stateRoot, teamId, 'team.json'), 'utf8')
     const value: unknown = JSON.parse(stripLeadingBom(raw))
-    if (!isTeamState(value, teamId)) {
+    const team = coerceTeamState(value, teamId)
+    if (team === undefined) {
       throw new Error(`invalid AgentTeams state in team "${teamId}"`)
     }
-    return value
+    return team
   } catch (error: unknown) {
     if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
       return undefined
@@ -229,15 +281,25 @@ export async function writeTeam(stateRoot: string, state: TeamState): Promise<vo
 }
 
 /** Read the durable set of member session ids retired by remove/delete. */
+function parseRetiredMemberIds(raw: string): Set<string> {
+  const parsed: unknown = JSON.parse(stripLeadingBom(raw))
+  if (!Array.isArray(parsed) || parsed.some(value => typeof value !== 'string' || value === '')) {
+    throw new Error('invalid AgentTeams retired member index')
+  }
+  return new Set(parsed)
+}
+
+/** Synchronous role hydration before the host's first prompt assembly. */
+export function readRetiredMemberIdsSync(stateRoot: string): Set<string> {
+  try { return parseRetiredMemberIds(readFileSync(join(stateRoot, RETIRED_MEMBERS_FILE), 'utf8')) } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return new Set()
+    throw error
+  }
+}
+
 export async function readRetiredMemberIds(stateRoot: string): Promise<Set<string>> {
   try {
-    const parsed: unknown = JSON.parse(stripLeadingBom(
-      await readFile(join(stateRoot, RETIRED_MEMBERS_FILE), 'utf8'),
-    ))
-    if (!Array.isArray(parsed) || parsed.some(value => typeof value !== 'string' || value === '')) {
-      throw new Error('invalid AgentTeams retired member index')
-    }
-    return new Set(parsed)
+    return parseRetiredMemberIds(await readFile(join(stateRoot, RETIRED_MEMBERS_FILE), 'utf8'))
   } catch (error: unknown) {
     if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
       return new Set()
@@ -414,9 +476,15 @@ export async function readUnreadMailbox(
   agentKey: string,
   onMalformedLine?: (lineNumber: number, error: unknown) => void,
 ): Promise<TeamMessage[]> {
-  const now = Date.now()
   return (await readMailbox(stateRoot, teamId, agentKey, onMalformedLine))
-    .filter(message => message.readAt === undefined
+    .filter(message => message.readAt === undefined && message.discardedAt === undefined)
+}
+
+/** Pending delivery is distinct from delivered-but-not-yet-read input. */
+export async function readPendingMailbox(stateRoot: string, teamId: string, agentKey: string): Promise<TeamMessage[]> {
+  const now = Date.now()
+  return (await readUnreadMailbox(stateRoot, teamId, agentKey))
+    .filter(message => message.deliveredAt === undefined
       && (message.deliveryClaimedAt === undefined
         || now - message.deliveryClaimedAt >= MAILBOX_DELIVERY_LEASE_MS))
 }
@@ -498,6 +566,18 @@ export async function acknowledgeMailbox(
       readAt: message.readAt ?? now,
     }
   })
+}
+
+/** Acceptance by Harness is not evidence that a model step consumed input. */
+export async function markMailboxDelivered(stateRoot: string, teamId: string, agentKey: string, ids: readonly string[]): Promise<void> {
+  await mutateMailbox(stateRoot, teamId, agentKey, ids, (message) => {
+    const { deliveryClaimedAt: _claimed, ...rest } = message
+    return { ...rest, deliveredAt: message.deliveredAt ?? Date.now() }
+  })
+}
+
+export async function discardMailboxMessages(stateRoot: string, teamId: string, agentKey: string, ids: readonly string[]): Promise<void> {
+  await mutateMailbox(stateRoot, teamId, agentKey, ids, message => ({ ...message, discardedAt: message.discardedAt ?? Date.now() }))
 }
 
 /** Remove the optional UTF-8 BOM some editors prepend to JSON text. */
@@ -644,17 +724,90 @@ function isTeamMember(value: unknown): value is TeamMember {
     && typeof value['name'] === 'string'
     && value['name'].trim() !== ''
     && isOptionalString(value['role'])
+    && (value['stopping'] === undefined || typeof value['stopping'] === 'boolean')
     && isOptionalString(value['provider'])
     && isOptionalString(value['model'])
     && isOptionalString(value['reasoningEffort'])
+    && isOptionalString(value['activeProvider'])
+    && isOptionalString(value['activeModel'])
+    && isOptionalString(value['spawnError'])
+    && (value['executionPrompt'] === undefined || typeof value['executionPrompt'] === 'string')
+    && (value['fallback'] === undefined || (isRecord(value['fallback']) && typeof value['fallback']['provider'] === 'string' && typeof value['fallback']['model'] === 'string'))
+    && (value['fallbackActive'] === undefined || typeof value['fallbackActive'] === 'boolean')
     && isFiniteNumber(value['joinedAt'])
     && (value['status'] === 'idle' || value['status'] === 'working' || value['status'] === 'removed')
 }
 
 /** Validate one task record at the durable JSON boundary. */
-function isTeamTask(value: unknown): value is TeamTask {
+function isTeamProfileSnapshot(value: unknown): value is TeamProfileSnapshot {
+  return isRecord(value)
+    && typeof value['name'] === 'string'
+    && value['name'].trim() !== ''
+    && isOptionalString(value['description'])
+    && isOptionalString(value['protocol'])
+    && (value['executionPrompt'] === undefined || typeof value['executionPrompt'] === 'string')
+    && (value['fallback'] === undefined || (isRecord(value['fallback']) && typeof value['fallback']['provider'] === 'string' && typeof value['fallback']['model'] === 'string'))
+    && (value['taskPlanning'] === undefined || value['taskPlanning'] === 'captain' || value['taskPlanning'] === 'seed')
+    && (value['reviewPolicy'] === undefined || isReviewPolicy(value['reviewPolicy']))
+}
+
+function coerceProfileSnapshot(value: unknown): TeamProfileSnapshot | undefined {
+  if (typeof value === 'string') {
+    const name = value.trim()
+    return name === '' ? undefined : { name }
+  }
+  if (!isRecord(value)) return undefined
+  if (!isTeamProfileSnapshot(value)) return undefined
+  return {
+    name: value.name.trim(),
+    ...value.description === undefined ? {} : { description: value.description },
+    ...value.protocol === undefined ? {} : { protocol: value.protocol },
+    ...value.taskPlanning === undefined ? {} : { taskPlanning: value.taskPlanning },
+  }
+}
+
+function coerceTeamState(value: unknown, expectedId: string): TeamState | undefined {
+  if (!isRecord(value)) return undefined
+  if (value['profile'] !== undefined && !isTeamProfileSnapshot(value['profile']) && typeof value['profile'] !== 'string') {
+    const next = { ...value }
+    delete next['profile']
+    value = next
+  } else if (typeof value['profile'] === 'string') {
+    const upgraded = coerceProfileSnapshot(value['profile'])
+    value = upgraded === undefined
+      ? (() => {
+        const next = { ...value as Record<string, unknown> }
+        delete next['profile']
+        return next
+      })()
+      : { ...value, profile: upgraded }
+  }
+  if (!isRecord(value) || !Array.isArray(value['tasks'])) {
+    return isTeamState(value, expectedId) ? value : undefined
+  }
+  const tasks = (value['tasks'] as unknown[]).map((task) => {
+    if (!isRecord(task)) return task
+    // Tolerate legacy dirty records instead of bricking the whole team on
+    // reload: blank optional fields written by older builds (or by models that
+    // materialize optionals as "") are normalized to omitted, matching the
+    // profileSeedId handling below and the tool-input normalization.
+    const cleaned = normalizeBlankOptionalTaskFields(task)
+    if (cleaned['profileSeedId'] !== undefined && (typeof cleaned['profileSeedId'] !== 'string' || cleaned['profileSeedId'].trim() === '')) {
+      const next = { ...cleaned }
+      delete next['profileSeedId']
+      return next
+    }
+    return cleaned
+  })
+  const coerced = { ...value, tasks }
+  return isTeamState(coerced, expectedId) ? coerced : undefined
+}
+
+export function isTeamTask(value: unknown): value is TeamTask {
   if (!isRecord(value)) return false
   return typeof value['id'] === 'string'
+    && isOptionalString(value['profileSeedId'])
+    && (value['profileSeedId'] === undefined || value['profileSeedId'].trim() !== '')
     && typeof value['subject'] === 'string'
     && isOptionalString(value['description'])
     && (value['status'] === 'pending'
@@ -671,9 +824,11 @@ function isTeamTask(value: unknown): value is TeamTask {
       || (Number.isSafeInteger(value['attempt']) && (value['attempt'] as number) >= 0))
     && isOptionalString(value['attemptId'])
     && isOptionalString(value['handoffId'])
+    && isOptionalString(value['handoffFromMemberId'])
     && (value['reassigning'] === undefined || typeof value['reassigning'] === 'boolean')
     && isFiniteNumber(value['createdAt'])
     && isFiniteNumber(value['updatedAt'])
+    && hasValidQualityTaskFields(value)
 }
 
 /** Validate the full team record before it can participate in authorization. */
@@ -683,6 +838,7 @@ function isTeamState(value: unknown, expectedId: string): value is TeamState {
     && typeof value['name'] === 'string'
     && value['name'].trim() !== ''
     && isOptionalString(value['description'])
+    && (value['profile'] === undefined || isTeamProfileSnapshot(value['profile']))
     && typeof value['captainSessionId'] === 'string'
     && value['captainSessionId'] !== ''
     && isFiniteNumber(value['createdAt'])
@@ -692,6 +848,15 @@ function isTeamState(value: unknown, expectedId: string): value is TeamState {
     && value['tasks'].every(isTeamTask)
     && Number.isSafeInteger(value['taskSeq'])
     && (value['taskSeq'] as number) >= 0
+    && (value['phase'] === undefined || value['phase'] === 'staged' || value['phase'] === 'running')
+    && (value['planReviewState'] === undefined
+      || value['planReviewState'] === 'awaiting_review'
+      || value['planReviewState'] === 'awaiting_feedback')
+    && (value['approvedAt'] === undefined || isFiniteNumber(value['approvedAt']))
+    && (value['halted'] === undefined || typeof value['halted'] === 'boolean')
+    && (value['haltedAt'] === undefined || isFiniteNumber(value['haltedAt']))
+    && (value['reviewPolicy'] === undefined || isReviewPolicy(value['reviewPolicy']))
+    && (value['escalated'] === undefined || typeof value['escalated'] === 'boolean')
   if (!validShape) return false
 
   const members = value['members'] as TeamMember[]
@@ -700,8 +865,11 @@ function isTeamState(value: unknown, expectedId: string): value is TeamState {
   const memberKeys = new Set<string>()
   for (const member of members) {
     const key = sanitizeKey(member.name)
-    if (member.id === '' || key === CAPTAIN_KEY || memberIds.has(member.id) || memberKeys.has(key)) return false
-    memberIds.add(member.id)
+    if (key === CAPTAIN_KEY || memberKeys.has(key)) return false
+    if (member.id !== '') {
+      if (memberIds.has(member.id)) return false
+      memberIds.add(member.id)
+    }
     memberKeys.add(key)
   }
   const taskIds = new Set<string>()
@@ -723,6 +891,9 @@ function isTeamMessage(value: unknown): value is TeamMessage {
     && (value['deliveryClaimedAt'] === undefined || isFiniteNumber(value['deliveryClaimedAt']))
     && (value['deliveredAt'] === undefined || isFiniteNumber(value['deliveredAt']))
     && (value['readAt'] === undefined || isFiniteNumber(value['readAt']))
+    && (value['discardedAt'] === undefined || isFiniteNumber(value['discardedAt']))
+    && (value['taskId'] === undefined || typeof value['taskId'] === 'string')
+    && (value['attemptId'] === undefined || typeof value['attemptId'] === 'string')
 }
 
 /**
@@ -848,11 +1019,12 @@ export async function listArchivedTeamIds(stateRoot: string): Promise<string[]> 
 // ── activity snapshot (server-side, like the Claude Code desktop watcher) ──
 
 /** Visual task state for the activity panel. */
-export type VisualTaskState = 'blocked' | 'open' | 'running' | 'completed'
+export type VisualTaskState = 'blocked' | 'open' | 'running' | 'completed' | 'failed' | 'cancelled'
 
 /**
  * The visual state of one task: `running` while in_progress, `completed`
- * when done, `blocked` while any dependency is unfinished, else `open`.
+ * when done, `failed`/`cancelled` when terminal without success, `blocked`
+ * while any dependency is unfinished, else `open`.
  */
 export function taskVisualState(
   status: string,
@@ -860,6 +1032,8 @@ export function taskVisualState(
   tasks: readonly TeamTask[],
 ): VisualTaskState {
   if (status === 'completed') return 'completed'
+  if (status === 'failed') return 'failed'
+  if (status === 'cancelled') return 'cancelled'
   if (status === 'in_progress') return 'running'
   const byId = new Map(tasks.map((task) => [task.id, task]))
   const openDependency = dependencies.some((dependencyId) => {

@@ -7,9 +7,15 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@nanmicoder/dsh-agent-teams"><img src="https://img.shields.io/npm/v/@nanmicoder/dsh-agent-teams.svg" alt="npm 版本"></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/npm/l/@nanmicoder/dsh-agent-teams.svg" alt="MIT 许可证"></a>
-  <img src="https://img.shields.io/badge/DeepSeek%20Harness-plugin-202724" alt="DeepSeek Harness 插件">
+  <a href="https://dshfind.com/zh/plugins/NanmiCoder/dsh-agent-teams?ref=badge"><img src="https://img.shields.io/badge/%E7%94%B1%20dshfind-%E6%8E%A8%E8%8D%90-FFD700?style=flat-square" alt="由 dshfind 推荐"></a>
+  <a href="https://dshfind.com/zh/plugins/NanmiCoder/dsh-agent-teams?ref=badge"><img src="https://dshfind.com/api/badge/NanmiCoder/dsh-agent-teams?lang=zh" alt="dshfind 评分"></a>
+  <a href="https://dshfind.com/zh/plugins/NanmiCoder/dsh-agent-teams?ref=badge"><img src="https://dshfind.com/api/badge/NanmiCoder/dsh-agent-teams?metric=downloads&amp;lang=zh" alt="dshfind 下载量"></a>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@nanmicoder/dsh-agent-teams"><img src="https://img.shields.io/npm/v/@nanmicoder/dsh-agent-teams?style=flat-square&amp;color=5B4CF0" alt="npm 版本"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-0B7285?style=flat-square" alt="MIT 许可证"></a>
+  <a href="./cordis.patch.yml"><img src="https://img.shields.io/badge/DSH-Web%20%2B%20Headless-5B4CF0?style=flat-square" alt="DSH Web 与 Headless"></a>
 </p>
 
 > [!IMPORTANT]
@@ -21,7 +27,7 @@
 
 `dsh-agent-teams` 让当前 DeepSeek Harness 会话成为队长：创建可续聊的子 Agent、把目标拆成有依赖的任务，并通过直达消息协调成员工作。
 
-你只需用自然语言提出目标。插件会提供团队协议、10 个协作工具、持久化状态、自动共享任务调度和实时 Web UI，不需要额外的 Workflow 引擎。
+你只需用自然语言提出目标。插件会提供精简的固定团队协议、14 个业务工具、持久化状态、自动共享任务调度和实时 Web UI，不需要额外的 Workflow 引擎。
 
 <p align="center">
   <img src="./assets/ui.png" width="100%" alt="DeepSeek Harness 对话与 AgentTeams 实时活动面板，展示成员、任务依赖和回报">
@@ -29,7 +35,7 @@
 
 ## 版本更新
 
-查看[最新版本说明](https://github.com/NanmiCoder/dsh-agent-teams/releases/latest)，或浏览[完整发布历史](https://github.com/NanmiCoder/dsh-agent-teams/releases)。同一份 Markdown 说明也会随 npm 包发布到 `release-notes/` 目录。
+[v0.1.20](./release-notes/v0.1.20.md) 仅把本文档中的版本引用同步到 npm `latest`，不含任何代码或行为变更，打包产物与 [v0.1.19](./release-notes/v0.1.19.md) 完全一致；该版本带来上一份文档版本以来的实质变更：宿主禁用或改名委派工具时成员仍能正常启动；自动修复范围改为从 `requiredFix` 推导；新增队长专用的 `agent_teams_amend_task`。推荐 DeepSeek Harness `0.1.5-rc.1`，保留三个旧宿主目标。
 
 ## 为什么需要 AgentTeams？
 
@@ -40,7 +46,8 @@
 | **带依赖的任务** | 任务有明确状态；依赖未完成时不能领取。 |
 | **自动续领与安全接管** | 成员空闲后自动领取下一项就绪任务；转派会撤销旧 attempt，冷恢复会重试遗留任务，迟到结果无法覆盖。 |
 | **成员直达消息** | 成员通过持久化邮箱直接联系队友或队长，不需要队长中转。 |
-| **实时活动面板** | Web UI 用分段进度、可折叠成员树和可交互 DAG 展示实时工作；团队结束后仍保留完整成员与任务历史。 |
+| **实时活动面板** | Web UI 用分段进度、可折叠成员树和可交互 DAG 展示实时工作；运行中的子任务会标出使用的模型，团队结束后仍保留完整成员与任务历史。 |
+| **质量门禁** | 人只提供目标和约束。默认任务顺序是需求 → 实现 → 验证 → 审查 → 集成，失败后自动修复/复审，恢复团队必须显式 resume。第一版范围控制是完成时审计，不是 host 写入拦截。详见 [docs/quality-gates.md](./docs/quality-gates.md)。 |
 
 对话卡片与活动面板接入 Harness 官方多语言服务，会随宿主在简体中文和英文之间实时切换；任务/成员状态、动态摘要、操作按钮、历史归档标识和无障碍文案都会同步更新，无需刷新页面，也不增加插件自己的语言设置。
 
@@ -48,27 +55,38 @@
 
 安装 [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) 后，AgentTeams 的**实时状态展示**以生态侧边卡的形式出现在右侧栏：注册为「+ 菜单」中的 **AgentTeams 状态** tab（类型 id `agent-teams:activity`，单实例）；团队首次出现时自动打开该卡（团队清空后重新武装，与新活动再触发），打开的 tab 图标旁显示当前会话的团队数角标；可在 DSH 设置 → 侧边卡片中启用/禁用；**未安装 better-sidebar 时自动回退**为原有的右上角浮动活动面板，行为不变。
 
-## 安装
+## 安装与版本选择
+
+**推荐组合：DeepSeek Harness `0.1.5-rc.1` + AgentTeams `0.1.20`。Harness 仍为预发布版本。**
 
 > [!NOTE]
-> 使用前请确保已安装 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)，且宿主版本为 **`0.1.5-rc.1` 或更高**。本 fork 跟随 0.1.5-rc 线；仍在使用 `0.1.0-rc` / `0.1.1-rc` 的宿主请继续使用 AgentTeams `<= 0.1.13`。
+> 本 fork 的侧边卡界面依赖 [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar)；未安装时自动回退到上游的浮动活动面板。仍在使用 `0.1.0-rc` / `0.1.1-rc` 的宿主请继续使用 AgentTeams `<= 0.1.13`。
 
-### npm
+| 使用场景 | DeepSeek Harness | AgentTeams 插件 |
+| --- | --- | --- |
+| **推荐安装** | **`0.1.5-rc.1`** | **`0.1.20`** |
+| 保留旧 RC | `0.1.2-rc.1` | `0.1.20` |
+| 开发者测试 Alpha | `0.1.2-alpha.5` | `0.1.20` |
+| 保留旧 Alpha | `0.1.2-alpha.2` | `0.1.20` |
+
+### 1. 安装 DeepSeek Harness
 
 ```sh
-dsh plugin --profile web add @nanmicoder/dsh-agent-teams@latest
+npm install --global @deepseek-ai/dsh@0.1.5-rc.1
+dsh --version
 ```
 
-### 从源码构建
+已有该版本可跳过。Alpha 仅供主动测试：手动指定表中的 Alpha 版本，并按[维护指南](./docs/maintenance-workflow.md)锁定整组宿主依赖。
+
+### 2. 安装 AgentTeams 插件
+
+安装到 `web` profile；使用其他 profile 时替换名称：
 
 ```sh
-git clone https://github.com/NanmiCoder/dsh-agent-teams.git
-cd dsh-agent-teams
-pnpm install
-pnpm build
-dsh plugin --profile web add .
+dsh plugin --profile web add --save-exact @nanmicoder/dsh-agent-teams@0.1.20
 ```
 
+**安装后，停止并重新启动该 profile 的 Harness 进程，再刷新浏览器。**
 
 ### 从本 fork 仓库安装（git 源，支持自动更新）
 
@@ -80,16 +98,17 @@ dsh plugin --profile web add "github:furina89757/dsh-agent-teams"
 
 修改源码后请重新执行 `pnpm build`。本地安装会继续链接到当前源码目录。
 
-检查组合配置、重启 DSH，然后刷新 Web UI：
+npm 默认标签 `latest` 现指向 `0.1.20`，因此新 profile 使用 `dsh plugin --profile web add @nanmicoder/dsh-agent-teams` 即可安装本版；需要锁定版本时使用上面的精确版本命令。推荐宿主为 Harness `0.1.5-rc.1`，安装插件不会自动升级宿主。源码安装见[维护指南](./docs/maintenance-workflow.md)，验证范围见[本版验收记录](./docs/releases/v0.1.19/README.md)。
 
-```sh
-dsh --profile web --dump-config
-dsh web
-```
+> Desktop 用户需核对应用内置的 Harness 核心；全局 CLI 升级不会升级桌面内核。旧 `0.1.0-*` / `0.1.1-*` 或其他未列出的宿主，请先保留已工作的组合，参考[旧版本与诊断指引](./docs/maintenance-workflow.md)。
+
+完整[兼容清单](./compatibility.json)、[源码安装与 Alpha 验证](./docs/maintenance-workflow.md)、[已验证范围与平台限制](./docs/maintenance-2026-09-06/release/README.md)。
 
 接着直接用自然语言拉团队：
 
 > 使用 AgentTeams 审查 v0.5.3 之后的提交，分别从性能、安全和产品角度分工，最后输出一份汇总报告。
+
+队长会话从第一轮起保留精简的固定核心协议和原有 14 个业务工具，直接调用，无需额外的加载工具或激活调用。已配置模板的精简目录固定保留。创建、批准、继续或结束团队都不会改写系统提示词和工具 schema，会话压缩或代码模式丢弃工具结果也不会丢失核心规则。成员保留四个团队工具、固定成员说明及普通编程/研究工具。Web 批准后会通知并唤醒队长，后续成员报告会再次唤醒它，无需忙轮询。详见[固定协议与 benchmark 标准](./docs/progressive-loading.md)。
 
 ## 工作方式
 
@@ -126,9 +145,13 @@ dsh web
     stateDir: .agent-teams
     memberProvider: spawn
     memberModel: deepseek-v4
-    memberMaxDepth: 1
+    memberMaxDepth: 0
     maxMembers: 8
 ```
+
+`memberMaxDepth` 默认 `0`，团队成员不能再创建子代理；显式设为 `1` 可允许一层后代，运行时和代码工具调用同样受限。默认成员统一通过团队消息汇报，避免再走宿主消息重复通知队长。无任务成员不调用模型；任务分配开启独立轮次，纠正消息进入最近的模型步骤。消息投递与读取分别记录；移除和归档必须等成员分支及待处理输入清理完成后才报告成功。
+
+普通调研、仓库审计可用 `agent_teams_create({name, description, approval:"required", plan:{members:[{name:"researcher"}], tasks:[{id:"audit", subject:"审计现有实现", assignee:"researcher"}]}})` 一次创建完整草案。任务的 `dependencies` 引用同一批中的 `id`，支持前向引用并校验环；结果返回实际任务 ID。`kind=review` 专用于对既有 implementation/repair 任务的质量复审，普通仓库审计使用默认的 `kind=work`。
 
 这里的 `memberProvider` 指子 Agent 的运行后端（`spawn` / `fork`），不是 LLM provider。跨 LLM provider 由 `agent_teams_add_member` 的可选 `provider` + `model` 参数表达；`memberModel` 只是所有成员的模型默认覆盖。成员沿用队长当前 provider/model 时会继承队长的思考强度；provider 或 model 任一改变时会自动使用目标模型的默认档。需要指定特定强度时，可传入可选的 `reasoning_effort` 参数（目标模型支持的档位 id，或 `"default"` 表示强制使用模型自身默认档）。
 
@@ -139,13 +162,16 @@ dsh web
 - 一个队长同一时间只能带一个活动团队。
 - 没有开放任务的空闲成员会自动续领就绪任务；仍持有开放 attempt 的空闲成员会停驻，队长可发消息让其沿用原 attempt 继续，或显式转派；冷重启遗留的开放任务才会生成新 attempt。暂时无法实时投递的消息会持久保存在邮箱中并在后续状态边界重投。
 - 状态使用文件持久化，并在单个 DSH 进程内串行操作；多个进程同时修改同一团队不保证一致。
+- 历史面板依赖保存的团队状态或归档；早期版本删除团队时未保留归档的会话，暂不支持从日志重建完整面板。
 - 活动面板如实展示持久化状态；模型偶尔可能完成工作却没有按协议更新任务状态。
 
 完整工具列表、状态模型、Web UI 行为、配置与已知限制见 [docs/usage.md](./docs/usage.md)。
 
 ## 插件开发 Skill
 
-仓库同时提供开放 Agent Skills 包 [`dsh-plugin-development`](./skills/dsh-plugin-development/SKILL.md)：
+仓库已引入社区升级、审计、测试和发布 skills，来源与本项目规则见 [skills/README.md](./skills/README.md)，贡献入口见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+
+另提供开放 Agent Skills 包 [`dsh-plugin-development`](./skills/dsh-plugin-development/SKILL.md)：
 
 ```sh
 npx skills add NanmiCoder/dsh-agent-teams --skill dsh-plugin-development
@@ -167,6 +193,12 @@ pnpm install
 pnpm build
 pnpm verify
 ```
+
+## 命名多角色团队配置
+
+在 `cordis.patch.yml` 的 `profiles` 中配置完整团队模板。每个 profile 都提供成员阵容，可独立指定 provider、model、role、reasoning_effort。`taskPlanning: captain` 表示只提供阵容和约束，由 Captain 根据用户目标设计 DAG；省略该字段或设为 `seed` 时，展开模板中的固定任务图。使用 `/agent-teams --profile <名称> <目标>` 显式激活；不会把首个普通 token 隐式识别为 profile。
+
+普通 `/agent-teams` 流程继续已有团队，按需调用 `agent_teams_status` 确认状态；仅在没有当前团队时调用 `agent_teams_create({ profile, approval: "required" })`：只落盘可编辑的成员占位和 DAG，不创建子会话、不领取任务。成员模型和推理等级直接读取 Harness 的模型目录。「返回对话修改」会终止仍在运行的规划轮次，让队长先追问修改方向，再用一次原子操作更新同一份草案；「放弃本次计划」经二次确认后会归档草案、中止轮次，并向模型注入不得自动重建团队的控制上下文。只有点击「确认并启动团队」才会提交最终配置并调度就绪任务；成员有就绪任务时才创建会话。运行中团队的停止入口位于该团队的面板标题，点击后需要二次确认，不再占用输入区域。直接工具调用方可显式传 `approval: "automatic"` 保留旧的立即执行路径。审查或测试失败不会解锁下游；自动 repair/review 不依赖 failed review。
 
 ## 许可证
 

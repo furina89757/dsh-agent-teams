@@ -5,6 +5,7 @@
 import { IconBranchOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the official browser locale service into ClientContext.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -14,9 +15,15 @@ import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the Session identity merge (sessionId standard props).
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+// Conversation folding is target-neutral; keyed Chat rendering is owned by
+// ui-chat, whose declaration is loaded above.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-// Type-only: the frame-level overlay declaration for the floater fallback.
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+// The frame-level overlay is declared by ui-layout. This import is type-only;
+// ctx.slots.inject below owns the runtime wait for the declaration.
+import type { UsePanelInfo } from '@deepseek-ai/dsh-client-ui-layout/client'
+// Official model catalog/directory service. The staged roster reads its
+// provider/model/effort metadata without mutating the captain's own selection.
+import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 // Type-only: better-sidebar's cordis augmentation declares ctx.betterSidebar
 // and the consumer types below; erased at build time (no runtime coupling).
 import type { TabComponentProps, TabDescriptor } from 'dsh-better-sidebar/client/service'
@@ -41,7 +48,7 @@ import {
 import {
   AGENT_TEAMS_LOCALE_NAMESPACE, en, zh, type AgentTeamsLocaleKey,
 } from './locales.ts'
-import { openAgentTeamMember } from './session-navigation.ts'
+import { openAgentTeamMember, type AgentTeamsLayoutNavigator } from './session-navigation.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -51,7 +58,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /** Required services: conversation nodes, slots, sessions navigation, and locale. */
-export const inject = ['uiConversation', 'slots', 'sessions', 'locale']
+export const inject = ['uiConversation', 'slots', 'sessions', 'locale', 'modelDirectories', 'layout']
+
+/** The host supplies this hook for the lifetime of a 0.1.5 root slot. */
+interface PanelNavigationProps {
+  usePanelInfo?: UsePanelInfo
+}
+const useLegacyPanelInfo: UsePanelInfo = select => select({ activePanelId: null })
 
 /** The replayed user message is the canonical transcript entry. */
 function HiddenAgentTeamsCommand(): null {
@@ -82,17 +95,24 @@ export function apply(ctx: ClientContext): void {
     params?: Record<string, unknown>,
   ) => string
   const openMember = (parentId: SessionId, childId: SessionId): void => {
-    void openAgentTeamMember(ctx.sessions, parentId, childId).catch((error: unknown) => {
+    void openAgentTeamMember(ctx.sessions, parentId, childId, ctx.layout as AgentTeamsLayoutNavigator).catch((error: unknown) => {
       console.warn(`agent-teams: failed to open member transcript ${childId}: ${String(error)}`)
     })
   }
-  const Panel = ({ t }: PropsLocale<'agentTeams'>) => (
+  const Panel = ({ t, usePanelInfo }: PropsLocale<'agentTeams'> & PanelNavigationProps) => {
+    // A host's standard hook set is fixed for this mounted plugin instance.
+    const usePanel = usePanelInfo ?? useLegacyPanelInfo
+    const conversationVisible = usePanel(panel => panel.activePanelId === null)
+    return (
     <ActivityPanel
+      conversationVisible={conversationVisible}
       sessionsList={ctx.sessions.list}
+      modelDirectories={ctx.modelDirectories}
       openMember={openMember}
       t={t}
     />
-  )
+    )
+  }
 
   // ── Legacy floater (fallback only) ─────────────────────────────────────
   // Better-sidebar owns the status display when the service is present;

@@ -20,8 +20,90 @@ export type TaskStatus =
 /** Statuses after which a task can no longer be claimed or worked on. */
 export const TERMINAL_TASK_STATUSES: readonly TaskStatus[] = ['completed', 'failed', 'cancelled']
 
+/** Structured quality-gate kind. Absent / unknown values are treated as `work`. */
+export type TaskKind =
+  | 'requirements'
+  | 'implementation'
+  | 'verification'
+  | 'review'
+  | 'repair'
+  | 'integration'
+  | 'work'
+
+export const TASK_KINDS: readonly TaskKind[] = [
+  'requirements',
+  'implementation',
+  'verification',
+  'review',
+  'repair',
+  'integration',
+  'work',
+]
+
+/** Review / requirements conclusion. Only `pass` may complete those kinds. */
+export type ReviewVerdict = 'pass' | 'needs_revision' | 'reject'
+
+export const REVIEW_VERDICTS: readonly ReviewVerdict[] = ['pass', 'needs_revision', 'reject']
+
+/** Finding severity used by review / requirements output. */
+export type FindingSeverity = 'low' | 'medium' | 'high' | 'blocker'
+
+export const FINDING_SEVERITIES: readonly FindingSeverity[] = ['low', 'medium', 'high', 'blocker']
+
+/** One structured review finding. */
+export interface ReviewFinding {
+  /** Stable id, for example `SEC-001`. */
+  id: string
+  severity: FindingSeverity
+  file?: string
+  line?: number
+  problem: string
+  requiredFix: string
+  resolved?: boolean
+}
+
+/** One acceptance criterion result recorded at completion. */
+export interface AcceptanceResult {
+  criterion: string
+  status: 'passed' | 'failed'
+  evidence?: string
+}
+
+/** One verification command result recorded at completion. */
+export interface CommandResult {
+  command: string
+  status: 'passed' | 'failed'
+  exitCode?: number
+  evidence?: string
+}
+
+/** Profile / team review-loop limits. */
+export interface ReviewPolicy {
+  requirementsMinRounds?: number
+  requirementsMaxRounds?: number
+  codeMaxRounds?: number
+  maxRepairAttempts?: number
+  requiredReviewers?: string[]
+}
+
+/** One captain-only contract amendment recorded on a quality task. */
+export interface TaskRevision {
+  /** Epoch ms when the amendment was applied. */
+  at: number
+  /** Identity that applied it (`captain`). */
+  by: string
+  /** Why the previous contract was wrong; kept for the audit trail. */
+  reason: string
+  /** Amended contract field names (`objective`, `acceptance`, …). */
+  fields: string[]
+  /** Previous values of the amended fields; fields absent before are omitted. */
+  previous: Record<string, unknown>
+}
+
 /** One task of a team's task list. */
 export interface TeamTask {
+  /** Stable task id from the profile template; absent for ad-hoc tasks. */
+  profileSeedId?: string
   /** Stable task id within the team (`t1`, `t2`, …). */
   id: string
   /** Brief title for the task. */
@@ -41,8 +123,35 @@ export interface TeamTask {
   attemptId?: string
   /** Opaque generation for a revocation/handoff that has not started its next attempt yet. */
   handoffId?: string
+  /** Previous activation retained until a handoff drain succeeds (retryable). */
+  handoffFromMemberId?: string
   /** A handoff is quiescing the old owner; the scheduler must not dispatch it yet. */
   reassigning?: boolean
+  /** Quality-gate kind. Missing values are treated as `work`. */
+  kind?: TaskKind
+  /** Review / requirements / repair loop index, 1-based when present. */
+  round?: number
+  verdict?: ReviewVerdict
+  findings?: ReviewFinding[]
+  objective?: string
+  inScope?: string[]
+  outOfScope?: string[]
+  acceptance?: string[]
+  verify?: string[]
+  deliverables?: string[]
+  nonGoals?: string[]
+  changedPaths?: string[]
+  acceptanceResults?: AcceptanceResult[]
+  commandsRun?: CommandResult[]
+  reviewedTaskId?: string
+  reviewedAttempt?: number
+  /** Repair source: the implementation / previous successful artifact. */
+  sourceTaskId?: string
+  sourceFindingIds?: string[]
+  /** User-constraint / goal items this task claims to cover. */
+  coverageOf?: string[]
+  /** Captain-only contract amendments, oldest first (see amendTaskContract). */
+  revisions?: TaskRevision[]
   createdAt: number
   updatedAt: number
 }
@@ -64,8 +173,25 @@ export interface TeamMember {
   model?: string
   /** Resolved reasoning effort captured from the captain or target model default. */
   reasoningEffort?: string
+  /** Prompt specific to this member's execution turns. */
+  executionPrompt?: string
+  /** Configured second-choice route. */
+  fallback?: TeamModelFallback
+  /** Active route after fallback, without changing the primary descriptor route. */
+  activeProvider?: string
+  activeModel?: string
+  /** Whether the fallback route is currently active. */
+  fallbackActive?: boolean
   joinedAt: number
   status: MemberStatus
+  /** Execution admission is closed while a failed/pending handoff is drained. */
+  stopping?: boolean
+  /**
+   * Last member-start failure, recorded so the captain can see why a member
+   * never acquired a session instead of observing an unexplained `unspawned`
+   * member. Cleared by the next successful start.
+   */
+  spawnError?: string
 }
 
 /** One mailbox message. */
@@ -83,6 +209,29 @@ export interface TeamMessage {
   deliveredAt?: number
   /** Set once the recipient has consumed or been shown the durable fallback. */
   readAt?: number
+  /** Guidance is scoped to the recipient's execution generation, when present. */
+  taskId?: string
+  attemptId?: string
+  /** Cancelled delivery is retained for audit but must not wake the recipient. */
+  discardedAt?: number
+}
+
+/** Snapshot of the named profile used to seed a team. */
+export interface TeamModelFallback {
+  provider: string
+  model: string
+}
+
+export interface TeamProfileSnapshot {
+  name: string
+  description?: string
+  protocol?: string
+  executionPrompt?: string
+  fallback?: TeamModelFallback
+  /** Frozen planning mode: captain plans the graph; seed keeps template tasks. */
+  taskPlanning?: 'captain' | 'seed'
+  /** Frozen review-loop policy from the creating profile. */
+  reviewPolicy?: ReviewPolicy
 }
 
 /** The full durable team record. */
@@ -93,6 +242,8 @@ export interface TeamState {
   id: string
   /** Team purpose/goal. */
   description?: string
+  /** Immutable named profile snapshot, when created from a profile. */
+  profile?: TeamProfileSnapshot
   /** Session id of the captain agent that owns this team. */
   captainSessionId: string
   createdAt: number
@@ -101,4 +252,29 @@ export interface TeamState {
   tasks: TeamTask[]
   /** Monotonic task id counter. */
   taskSeq: number
+  /**
+   * Two-phase execution lifecycle. Missing means `running` for durable
+   * compatibility with teams created before staging existed.
+   */
+  phase?: 'staged' | 'running'
+  /**
+   * Human-facing review sub-state while `phase` is `staged`. Missing staged
+   * records are treated as `awaiting_review` for backward compatibility.
+   * `awaiting_feedback` means the user returned to chat and the Captain must
+   * ask what should change before editing this same draft.
+   */
+  planReviewState?: 'awaiting_review' | 'awaiting_feedback'
+  /** Timestamp written only after a staged plan is explicitly approved. */
+  approvedAt?: number
+  /**
+   * Human halt from the captain chat. The team remains on disk, members stay
+   * available, and unfinished work is cancelled until the captain resumes.
+   */
+  halted?: boolean
+  /** Timestamp of the latest human halt, when present. */
+  haltedAt?: number
+  /** Review-loop policy snapshot copied from the creating profile, when present. */
+  reviewPolicy?: ReviewPolicy
+  /** Set when an automatic review/repair loop hits its configured ceiling. */
+  escalated?: boolean
 }
