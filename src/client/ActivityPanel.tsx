@@ -55,6 +55,7 @@ import {
   type ActivityTask,
   type ActivityTeam,
 } from './activity-monitor.ts'
+import { currentSessionId } from './session-navigation.ts'
 import { ACTION_ART, LEAD_ART, memberArtUrl } from './artwork.ts'
 import { OPEN_PANEL_EVENT } from './AgentTeamsCard.tsx'
 import { StagingPlanEditor } from './StagingPlanEditor.tsx'
@@ -786,10 +787,10 @@ export function ActivityPanel({ sessionsList, modelDirectories, openMember, t, c
   const gestureRef = useRef<PanelGesture | null>(null)
   const frameRef = useRef<number | null>(null)
   const pendingLayoutRef = useRef<PanelLayout | null>(null)
-  const current = useSyncExternalStore(
+  const current = currentSessionId(useSyncExternalStore(
     sessionsList.subscribe,
     sessionsList.getSnapshot,
-  ).current
+  ))
   const autoOpenTrackerRef = useRef<{
     sessionId: SessionId | undefined
     restoreComplete: boolean

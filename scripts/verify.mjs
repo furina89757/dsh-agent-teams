@@ -1915,6 +1915,36 @@ check(
   sidebarMonitorSource.includes("AGENT_TEAMS_TAB_ID = 'agent-teams:activity'")
     && !sidebarMonitorSource.includes('window.'),
 )
+// Harness 0.1.6 removed sessions.list.current; the resolver must read the
+// modern per-row consumer mark AND still serve the legacy field.
+{
+  const { currentSessionId } = await import('../lib/client/session-navigation.js')
+  const CUR = 'session-current'
+  check(
+    'the current-session resolver reads the 0.1.6 retainedBy.mainView mark',
+    currentSessionId({
+      ids: [CUR],
+      byId: {
+        [CUR]: { id: CUR, retainedBy: { mainView: 1 } },
+        'session-idle': { id: 'session-idle', retainedBy: {} },
+      },
+    }) === CUR,
+  )
+  check(
+    'the current-session resolver still serves the legacy 0.1.5 current field',
+    currentSessionId({ ids: [CUR], current: CUR, byId: {} }) === CUR,
+  )
+  check(
+    'the current-session resolver reports nothing for an empty or unmarked list',
+    currentSessionId({}) === undefined
+      && currentSessionId({ byId: { a: { id: 'a', retainedBy: {} } } }) === undefined,
+  )
+  check(
+    'the side card and floater both resolve the session through the resolver',
+    clientIndexSource.includes('currentSessionId(ctx.sessions.list.getSnapshot())')
+      && activityPanelSource.includes('currentSessionId(useSyncExternalStore('),
+  )
+}
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) FAILED`)

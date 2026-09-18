@@ -48,7 +48,11 @@ import {
 import {
   AGENT_TEAMS_LOCALE_NAMESPACE, en, zh, type AgentTeamsLocaleKey,
 } from './locales.ts'
-import { openAgentTeamMember, type AgentTeamsLayoutNavigator } from './session-navigation.ts'
+import {
+  currentSessionId,
+  openAgentTeamMember,
+  type AgentTeamsLayoutNavigator,
+} from './session-navigation.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -193,7 +197,9 @@ export function apply(ctx: ClientContext): void {
       subscribeTargets: subscribeActivityMonitorTargets,
       getTargets: () => getActivityMonitorTargetsSnapshot(),
       subscribeSessions: (listener) => ctx.sessions.list.subscribe(listener),
-      getCurrentSession: () => ctx.sessions.list.getSnapshot().current,
+      // Version-tolerant: 0.1.6 moved the selection out of the list snapshot
+      // into per-row consumer counts (see currentSessionId).
+      getCurrentSession: () => currentSessionId(ctx.sessions.list.getSnapshot()),
       startPolling: (targets, discoverySessionId) => startActivityPolling(targets, { discoverySessionId }),
       openTab: () => openStatusCard(),
     }), 'agent-teams: better-sidebar session monitor')

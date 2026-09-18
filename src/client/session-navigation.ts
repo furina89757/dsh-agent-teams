@@ -3,6 +3,36 @@
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 
+/**
+ * The Session the main panel currently shows, across Harness generations.
+ *
+ * Harness 0.1.5 exposed the selection as `sessions.list.current`. The
+ * Session-Controller refactor in 0.1.6 removed that field: navigation now
+ * belongs to the view owner, and the list reports which consumer retains each
+ * row (`byId[*].retainedBy.mainView`) — the same rule ui-workspace itself uses
+ * to mark the current row. Read the modern field first, then fall back to the
+ * legacy one so one bundle serves both hosts.
+ *
+ * @param list - the `ctx.sessions.list` snapshot.
+ * @returns the current Session id, or undefined when nothing is selected.
+ */
+export function currentSessionId(list: AgentTeamsSessionList): SessionId | undefined {
+  if (list.current !== undefined) return list.current
+  for (const row of Object.values(list.byId ?? {})) {
+    const summary = row as { readonly id?: SessionId; readonly retainedBy?: Readonly<Record<string, number>> } | undefined
+    if ((summary?.retainedBy?.mainView ?? 0) > 0) return summary?.id
+  }
+  return undefined
+}
+
+/** Structural slice of `ctx.sessions.list`'s snapshot the resolver reads. */
+export interface AgentTeamsSessionList {
+  /** Harness 0.1.5 selection field; absent from 0.1.6 onward. */
+  readonly current?: SessionId | undefined
+  /** Rows keyed by Session id; 0.1.6+ marks the shown row through retainedBy. */
+  readonly byId?: Readonly<Record<string, unknown>> | undefined
+}
+
 /** Narrow sessions-service face used by the activity panel and team card. */
 export interface AgentTeamsSessionNavigator {
   /** Legacy/ordinary session navigation. */
