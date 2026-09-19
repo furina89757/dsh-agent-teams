@@ -35,14 +35,29 @@ export interface AgentTeamsSessionList {
 
 /** Narrow sessions-service face used by the activity panel and team card. */
 export interface AgentTeamsSessionNavigator {
-  /** Legacy/ordinary session navigation. */
-  open(id: SessionId): void
-  /** rc.8 addressed subagent navigation. */
+  /**
+   * Ordinary session navigation. Present through Harness 0.1.5; the
+   * Session-Controller refactor in 0.1.6 moved navigation to the view owner
+   * (`uiWorkspace.openSession`) and removed this method.
+   */
+  open?(id: SessionId): void
+  /** rc.8 addressed subagent navigation; also removed in 0.1.6. */
   openSubagent?(address: SubagentAddress): void
   /** Refresh the exact parent's durable direct-child catalog. */
   refreshSubagents?(parentSessionId: SessionId): Promise<void>
   /** Reuse an address already retained by the client runtime when available. */
   subagentAddress?(id: SessionId): SubagentAddress | undefined
+}
+
+/**
+ * View-owner navigation introduced by Harness 0.1.6. `openSession` accepts the
+ * same SessionTarget vocabulary as the retired `sessions.open/openSubagent`
+ * pair, and the workspace service already resolves the subagent address and
+ * refreshes the parent catalog internally — so one call replaces the whole
+ * 0.1.5 two-step flow.
+ */
+export interface AgentTeamsWorkspaceNavigator {
+  openSession?(target: SessionId | SubagentAddress): void
 }
 
 /** Main-panel navigation added in Harness 0.1.5; older layouts omit these actions. */
@@ -55,20 +70,34 @@ export interface AgentTeamsLayoutNavigator {
  * Open one member's persisted transcript.
  *
  * Harness rc.8 intentionally removed cold subagents from the ordinary session
- * list. They must first be rediscovered in their parent's catalog, then opened
- * with the exact parent/child/mode address. Older runtimes have only `open()`;
- * the fallback preserves ordinary-session navigation. New layouts also select
- * the Conversation panel and cancel catalog refreshes superseded by navigation.
+ * list, so a member transcript must be opened through its exact
+ * parent/child/mode address. Two host generations own that navigation:
+ *
+ * - 0.1.6+ moved navigation to the view owner. `uiWorkspace.openSession`
+ *   accepts the address directly, resolves it, and refreshes the parent
+ *   catalog itself, so one call is the whole flow.
+ * - 0.1.5 and earlier exposed it on the sessions service: refresh the parent's
+ *   catalog, reuse the address the runtime already retained when it matches,
+ *   then `openSubagent`. Runtimes without addressed navigation have only
+ *   `open()`, which the last branch preserves.
+ *
+ * @returns which route was taken, for the caller's diagnostics.
  */
 export async function openAgentTeamMember(
   sessions: AgentTeamsSessionNavigator,
   parentSessionId: SessionId,
   childSessionId: SessionId,
   layout?: AgentTeamsLayoutNavigator,
+  workspace?: AgentTeamsWorkspaceNavigator,
 ): Promise<'subagent' | 'session' | 'cancelled'> {
   const navigation = layout?.beginNavigation?.()
+  // 0.1.6+: the view owner owns navigation and resolves the address itself.
+  if (workspace?.openSession !== undefined) {
+    workspace.openSession({ parentSessionId, childSessionId, mode: 'continuable' })
+    return 'subagent'
+  }
   if (sessions.openSubagent === undefined || sessions.refreshSubagents === undefined) {
-    sessions.open(childSessionId)
+    sessions.open?.(childSessionId)
     layout?.selectPanel?.(null)
     return 'session'
   }

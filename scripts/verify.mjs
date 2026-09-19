@@ -1945,6 +1945,50 @@ check(
       && activityPanelSource.includes('currentSessionId(useSyncExternalStore('),
   )
 }
+// Harness 0.1.6 also moved member-transcript navigation to the view owner:
+// `sessions.open` and `sessions.openSubagent` are gone, and `uiWorkspace`
+// exposes `openSession(address)` instead. Both routes must stay wired.
+{
+  const { openAgentTeamMember } = await import('../lib/client/session-navigation.js')
+  const calls = []
+  const sessions = {
+    open: (id) => calls.push(['open', id]),
+    openSubagent: (target) => calls.push(['openSubagent', target]),
+    refreshSubagents: async (id) => { calls.push(['refresh', id]) },
+    subagentAddress: () => undefined,
+  }
+  const address = { parentSessionId: 'parent-1', childSessionId: 'child-1', mode: 'continuable' }
+  const viaWorkspace = await openAgentTeamMember(sessions, 'parent-1', 'child-1', undefined, {
+    openSession: (target) => calls.push(['openSession', target]),
+  })
+  check(
+    'member navigation prefers the 0.1.6 view-owner openSession with the exact address',
+    viaWorkspace === 'subagent'
+      && calls.length === 1
+      && calls[0][0] === 'openSession'
+      && calls[0][1].parentSessionId === address.parentSessionId
+      && calls[0][1].childSessionId === address.childSessionId
+      && calls[0][1].mode === 'continuable',
+  )
+  calls.length = 0
+  const viaSessions = await openAgentTeamMember(sessions, 'parent-1', 'child-1')
+  check(
+    'member navigation keeps the legacy sessions-service route for older hosts',
+    viaSessions === 'subagent'
+      && calls.map(call => call[0]).join(',') === 'refresh,openSubagent',
+  )
+  calls.length = 0
+  const plain = await openAgentTeamMember({ open: id => calls.push(['open', id]) }, 'p', 'c')
+  check(
+    'a host without addressed navigation falls back to plain session open',
+    plain === 'session' && calls.length === 1 && calls[0][0] === 'open',
+  )
+  check(
+    'the plugin resolves the view-owner navigator through the optional uiWorkspace service',
+    clientIndexSource.includes("ctx.get('uiWorkspace')")
+      && clientIndexSource.includes('AgentTeamsWorkspaceNavigator'),
+  )
+}
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) FAILED`)

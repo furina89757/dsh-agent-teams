@@ -52,6 +52,7 @@ import {
   currentSessionId,
   openAgentTeamMember,
   type AgentTeamsLayoutNavigator,
+  type AgentTeamsWorkspaceNavigator,
 } from './session-navigation.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -99,7 +100,16 @@ export function apply(ctx: ClientContext): void {
     params?: Record<string, unknown>,
   ) => string
   const openMember = (parentId: SessionId, childId: SessionId): void => {
-    void openAgentTeamMember(ctx.sessions, parentId, childId, ctx.layout as AgentTeamsLayoutNavigator).catch((error: unknown) => {
+    // 0.1.6 moved navigation to the view owner; `uiWorkspace` is absent on
+    // older hosts, where the sessions-service route below still applies.
+    const workspace = ctx.get('uiWorkspace') as AgentTeamsWorkspaceNavigator | undefined
+    void openAgentTeamMember(
+      ctx.sessions,
+      parentId,
+      childId,
+      ctx.layout as AgentTeamsLayoutNavigator,
+      workspace,
+    ).catch((error: unknown) => {
       console.warn(`agent-teams: failed to open member transcript ${childId}: ${String(error)}`)
     })
   }
